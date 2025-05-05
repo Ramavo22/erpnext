@@ -57,26 +57,65 @@ def supplier_import(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         
+        data = []
+        country_list = set()
         for i,row in enumerate(reader):
-            print(f"Ligne {i+1}: {row}")
-    
-    print("==========================")
+            
+            country_list.add(row["country"])
+            data.append(
+                {
+                    "supplier_name": row["supplier_name"],
+                    "country": row["country"],
+                    "supplier_type": row["type"],
+                }
+            )
+            
+        for i,row in enumerate(country_list):
+            if not frappe.db.exists("Country", row):
+                country_code = first_two_letter_upper_case(row)
+                print(f"Country {row} with code {country_code} will be inserted")
+                
+                country = frappe.get_doc({
+                    "doctype": "Country",
+                    "country_name": row,
+                    "code": country_code
+                })
+                
+                country.insert()
+                print(f"Country {row} inserted")
+                
+        frappe.db.commit()
+        
+        for i,row in enumerate(data):
+            supplier = frappe.get_doc({
+                "doctype": "Supplier",
+                "supplier_name": row["supplier_name"],
+                "country": row["country"],
+                "supplier_type": row["supplier_type"],
+            })
+            supplier.insert()  
+            print(f"Supplier {row['supplier_name']} inserted")  
+        frappe.db.commit()
+        
+    print("Supplier import done")
 
 def material_request_import(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
+    # with open(file_path, 'r', encoding='utf-8') as file:
+    #     reader = csv.DictReader(file)
         
-        for i,row in enumerate(reader):
-            print(f"Ligne {i+1}: {row}")
-    print("==========================")
+    #     for i,row in enumerate(reader):
+    #         print(f"Ligne {i+1}: {row}")
+    # print("==========================")
+    pass
     
 def quotation_import(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
+    # with open(file_path, 'r', encoding='utf-8') as file:
+    #     reader = csv.DictReader(file)
         
-        for i,row in enumerate(reader):
-            print(f"Ligne {i+1}: {row}")
-    print("==========================")
+    #     for i,row in enumerate(reader):
+    #         print(f"Ligne {i+1}: {row}")
+    # print("==========================")
+    pass	
     
 
 
@@ -109,13 +148,15 @@ def reinit_base():
     
     return "Reinit done"
             
-# /erpnext.data_management.data_management
 
 
-# Champ	Description
-# articlename	Nom de l’article
-# description	Description de l’article
-# categorie	Catégorie de l’article
-# attachment
+###########################
+# inner fonctions
+
+def first_two_letter_upper_case(texte):
+    
+    if len(texte) <= 2:
+        return texte.upper()
+    return texte[:2].upper()
 
 
