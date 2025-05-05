@@ -49,10 +49,6 @@ def import_data(file_url_supplier=None, file_url_material_request=None, file_url
         frappe.throw(_("Une erreur est survenue pendant l'import : ") + str(e))
 
 
-
-
-
-
 def supplier_import(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
@@ -100,13 +96,86 @@ def supplier_import(file_path):
     print("Supplier import done")
 
 def material_request_import(file_path):
-    # with open(file_path, 'r', encoding='utf-8') as file:
-    #     reader = csv.DictReader(file)
+    # step 0 = prepare the data
+    with open(file_path, 'r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
         
-    #     for i,row in enumerate(reader):
-    #         print(f"Ligne {i+1}: {row}")
-    # print("==========================")
-    pass
+       
+        item_group_list = set()
+        item_list = []
+        warehouse_list = set()
+        data = []
+        
+        for row in reader:
+            item_group_list.add(row["item_groupe"])
+            # Vérifie si le couple (item_name, item_group) existe déjà
+            if (row["item_name"], row["item_groupe"]) not in [
+                (item["item_name"], item["item_group"]) for item in item_list
+            ]:
+                item_list.append({
+                    "item_name": row["item_name"],
+                    "item_group": row["item_groupe"]
+                })
+            warehouse_list.add(row["target_warehouse"])
+            data.append({
+                "date": row["date"],
+                "item_name": row["item_name"],
+                "item_group": row["item_groupe"],
+                "required_by": row["required_by"],
+                "quantity": row["quantity"],
+                "purpose": row["purpose"],
+                "target_warehouse": row["target_warehouse"],
+                "ref": row["ref"],
+            })
+            
+    # step 1 = create the item groups
+    
+    for row in item_group_list:
+        item_group = frappe.get_doc({
+            "doctype": "Item Group",
+            "item_group_name": row,
+            "parent_item_group": "All Item Groups"
+        })
+        item_group.insert()
+        print(f"Item group {row} inserted")
+    frappe.db.commit()
+    
+    
+    # step 1.1 = create the warehouse
+
+    for row in warehouse_list:
+        warehouse = frappe.get_doc({
+            "doctype": "Warehouse",
+            "name": row,
+            "warehouse_name": row,
+            "company": "Fanah's ERP",
+            "is_group": 0,
+        })
+        warehouse.insert()
+        print(f"Warehouse {row} inserted")
+        
+    frappe.db.commit()
+    
+    
+   
+    # # step 2 = create the item
+    
+    for row in item_list:
+        item_code = frappe.model.naming.make_autoname('ITEM-.#####')
+        item = frappe.get_doc({
+            "doctype": "Item",
+            "item_code": item_code,
+            "item_name": row["item_name"],
+            "item_group": row["item_group"],
+            "stock_uom": "Unit",
+        })
+        item.insert()
+        print(f"Item {row['item_name']} inserted")
+        
+    frappe.db.commit()
+    # step 3 = create material request
+    # step 4 = create material request item
+    
     
 def quotation_import(file_path):
     # with open(file_path, 'r', encoding='utf-8') as file:
@@ -140,11 +209,22 @@ def reinit_base():
         "Purchase Receipt",
         "Purchase Receipt Item",
         "Payment Request",
-        "Payment Entry"
+        "Payment Entry",
+        "Bin",
+        "Stock Ledger Entry",
+        "Warehouse",
     ]
+    
+    
     
     for doctype in doctype_list:
         frappe.db.sql(f"TRUNCATE TABLE `tab{doctype}`")
+        
+    #Supprimer tous les Item Group sauf "All Item Groups"
+    frappe.db.sql("""
+        DELETE FROM `tabItem Group`
+        WHERE name != 'All Item Groups'
+    """)
     
     return "Reinit done"
             
