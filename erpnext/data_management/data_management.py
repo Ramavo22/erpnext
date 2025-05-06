@@ -3,6 +3,9 @@ import os
 import frappe
 from frappe import _
 
+from collections import defaultdict
+from datetime import datetime
+
 
 @frappe.whitelist()
 def import_data(file_url_supplier=None, file_url_material_request=None, file_url_quotation=None):
@@ -100,11 +103,11 @@ def material_request_import(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         
-       
         item_group_list = set()
         item_list = []
         warehouse_list = set()
         data = []
+        
         
         for row in reader:
             item_group_list.add(row["item_groupe"])
@@ -112,7 +115,9 @@ def material_request_import(file_path):
             if (row["item_name"], row["item_groupe"]) not in [
                 (item["item_name"], item["item_group"]) for item in item_list
             ]:
+                item_code = frappe.model.naming.make_autoname('ITEM-.#####')
                 item_list.append({
+                    "item_code": item_code,
                     "item_name": row["item_name"],
                     "item_group": row["item_groupe"]
                 })
@@ -129,7 +134,6 @@ def material_request_import(file_path):
             })
             
     # step 1 = create the item groups
-    
     for row in item_group_list:
         item_group = frappe.get_doc({
             "doctype": "Item Group",
@@ -142,7 +146,6 @@ def material_request_import(file_path):
     
     
     # step 1.1 = create the warehouse
-
     for row in warehouse_list:
         warehouse = frappe.get_doc({
             "doctype": "Warehouse",
@@ -155,16 +158,12 @@ def material_request_import(file_path):
         print(f"Warehouse {row} inserted")
         
     frappe.db.commit()
-    
-    
-   
-    # # step 2 = create the item
-    
+
+    # step 2 = create the item
     for row in item_list:
-        item_code = frappe.model.naming.make_autoname('ITEM-.#####')
         item = frappe.get_doc({
             "doctype": "Item",
-            "item_code": item_code,
+            "item_code": row["item_code"],
             "item_name": row["item_name"],
             "item_group": row["item_group"],
             "stock_uom": "Unit",
@@ -173,9 +172,37 @@ def material_request_import(file_path):
         print(f"Item {row['item_name']} inserted")
         
     frappe.db.commit()
-    # step 3 = create material request
-    # step 4 = create material request item
-    
+    # step 3 = create the material request
+    grouped_data = defaultdict(list)
+
+    for row in data:
+        grouped_data[row["ref"]].append(row)
+
+    for ref, rows in grouped_data.items():
+        mr_doc = frappe.get_doc({
+            "doctype": "Material Request",
+            "transaction_date": dateToIsoDate(rows[0]["date"]),
+            "company": "Fanah's ERP",
+            "material_request_type": rows[0]["purpose"],
+            "docstatus": 1,
+            "items": []
+        })
+        for row in rows:
+            item_code = frappe.get_value("Item", {"item_name": row["item_name"]}, "name")
+            mr_doc.append("items",{
+                "item_code": item_code,
+                "item_name": row["item_name"],
+                "item_group": row["item_group"],
+                "schedule_date": dateToIsoDate(row["required_by"]),
+                "qty": float(row["quantity"]),
+                "uom": "Unit",
+                "warehouse": warehouse_name(row["target_warehouse"]),
+            })
+        mr_doc.insert()
+        print(f"Material Request {ref} inserted")
+    frappe.db.commit()
+    print("Material Request import done")
+
     
 def quotation_import(file_path):
     # with open(file_path, 'r', encoding='utf-8') as file:
@@ -233,10 +260,27 @@ def reinit_base():
 ###########################
 # inner fonctions
 
+def dateToIsoDate(datestr: str) -> str:
+    """
+    Convertit une date de format 'DD/MM/YYYY' en format ISO 'YYYY-MM-DD'.
+    """
+    try:
+        return datetime.strptime(datestr, "%d/%m/%Y").date().isoformat()
+    except ValueError:
+        raise ValueError(f"Date invalide : '{datestr}' (attendu: JJ/MM/AAAA)")
+    
+    
 def first_two_letter_upper_case(texte):
     
     if len(texte) <= 2:
         return texte.upper()
     return texte[:2].upper()
 
+def warehouse_name(warehouse):
+    """
+    Renvoie le nom du warehouse
+    exemple : "All Warehouse - FE for All Warehouse"
+    """
+    return warehouse+" - FE"
+    
 
