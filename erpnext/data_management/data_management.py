@@ -181,6 +181,7 @@ def material_request_import(file_path):
     for ref, rows in grouped_data.items():
         mr_doc = frappe.get_doc({
             "doctype": "Material Request",
+            "custom_ref": ref,
             "transaction_date": dateToIsoDate(rows[0]["date"]),
             "company": "Fanah's ERP",
             "material_request_type": rows[0]["purpose"],
@@ -203,18 +204,66 @@ def material_request_import(file_path):
     frappe.db.commit()
     print("Material Request import done")
 
-    
+
+
+from erpnext.stock.doctype.material_request.material_request import make_request_for_quotation
 def quotation_import(file_path):
-    # with open(file_path, 'r', encoding='utf-8') as file:
-    #     reader = csv.DictReader(file)
+    with open(file_path, 'r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        data = []
+        for row in reader:
+            data.append({
+                "ref": row["ref_request_quotation"],
+                "supplier": row["supplier"]
+            })
+            
+        grouped_data = defaultdict(list)
+
+        for row in data:
+            grouped_data[row["ref"]].append(row)
+            
+        for ref, rows in grouped_data.items():
+            mr_doc_name = frappe.get_value("Material Request", {"custom_ref": ref}, "name")
+            if not mr_doc_name:
+                frappe.throw(_("Material Request not found for ref: ") + ref)
+            
+            print(f"Material Request {mr_doc_name} found for ref: {ref}")
+            
+            rfq = make_request_for_quotation(mr_doc_name)
+            
+            print(f"RFQ {rfq} created for Material Request {mr_doc_name}")
+            
+            for row in rows:
+                rfq.append("suppliers", {
+                    "supplier": row["supplier"]
+                })
+                
+            rfq.message_for_supplier= "Please provide your best price and delivery time."
+            rfq.custom_ref = ref
+            rfq.insert()
+            rfq.submit()
+            
+        frappe.db.commit()   
+        generate_supplier_quotation(grouped_data)
+
+        print("Quotation import done")
         
-    #     for i,row in enumerate(reader):
-    #         print(f"Ligne {i+1}: {row}")
-    # print("==========================")
-    pass	
+from erpnext.buying.doctype.request_for_quotation.request_for_quotation import make_supplier_quotation_from_rfq
+def generate_supplier_quotation(rfq_data):
+    for ref, rows in rfq_data.items():
+        rfq_name = frappe.get_value("Request for Quotation", {"custom_ref": ref}, "name")
+        if not rfq_name:
+            frappe.throw(_("Request for Quotation not found for ref: ") + ref)
+
+        for row in rows:
+            
+            sq = make_supplier_quotation_from_rfq(rfq_name,for_supplier=row["supplier"])
+            sq.insert()
+        
     
-
-
+    frappe.db.commit()
+                   
+    
 @frappe.whitelist()
 def reinit_base():
     
